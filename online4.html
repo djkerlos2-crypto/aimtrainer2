@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Aim Trainer – sir_Pablo_</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{margin:0;background:#0b0b0b;color:white;overflow:hidden;font-family:Arial}
+canvas{display:block}
+#ui{position:fixed;top:10px;left:10px;background:rgba(0,0,0,.6);padding:10px;border-radius:8px;font-size:14px}
+#highscore{position:fixed;top:10px;right:10px;background:rgba(0,0,0,.6);padding:10px;border-radius:8px}
+#branding{position:fixed;bottom:10px;right:15px;opacity:.7}
+</style>
+</head>
+<body>
+
+<div id="ui">
+<div>Weapon: <span id="weapon">Glock</span></div>
+<div>Ammo: <span id="ammo">15</span></div>
+<div>Score: <span id="score">0</span></div>
+<div style="font-size:12px">1–3 Waffen | R = Reload</div>
+</div>
+
+<div id="highscore">
+<h4>🏆 Highscore</h4>
+<ol id="highscoreList"></ol>
+</div>
+
+<div id="branding">🔴 sir_Pablo_ LIVE</div>
+<canvas id="c"></canvas>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-app.js";
+import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-firestore.js";
+
+// Firebase Config
+const firebaseConfig = {
+  apiKey: "AIzaSyBbI43FSJzikGEJu1fzayopJborqVfe7ZI",
+  authDomain: "syxcxscy.firebaseapp.com",
+  projectId: "syxcxscy",
+  storageBucket: "syxcxscy.firebasestorage.app",
+  messagingSenderId: "642554038350",
+  appId: "1:642554038350:web:02d1d5befd1d5efd209b1f"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const playerName = "sir_Pablo_#" + Math.floor(Math.random()*9999);
+
+const c = document.getElementById("c"), ctx=c.getContext("2d");
+let weapon=document.getElementById("weapon"), ammoEl=document.getElementById("ammo"), scoreEl=document.getElementById("score");
+
+function resize(){c.width=innerWidth;c.height=innerHeight;}
+resize(); window.onresize=resize;
+
+const weapons = {
+  1:{name:"Glock",ammo:150,spread:.02,recoil:5,auto:false},
+  2:{name:"Deagle",ammo:70,spread:.04,recoil:9,auto:false},
+  3:{name:"SMG",ammo:300,spread:.01,recoil:2,auto:true,rate:100}
+};
+
+let current=1, ammo=weapons[1].ammo, score=0, recoil=0;
+let shooting=false, lastShot=0;
+const bullets=[], targets=[];
+
+const player = { x:()=>c.width/2, y:()=>c.height-120, angle:0 };
+
+document.onkeydown = e=>{
+  if(e.key>="1" && e.key<="3"){ current=e.key; ammo=weapons[current].ammo; }
+  if(e.key==="r"){ ammo=weapons[current].ammo; }
+};
+
+c.onmousemove = e=>player.angle = Math.atan2(e.clientY-player.y(), e.clientX-player.x());
+c.onmousedown = ()=>shooting=true;
+c.onmouseup = ()=>shooting=false;
+
+function shoot(now){
+  if(ammo<=0) return;
+  ammo--; recoil = weapons[current].recoil;
+  const s = (Math.random()-0.5)*weapons[current].spread;
+  bullets.push({
+    x:player.x(), y:player.y(),
+    dx: Math.cos(player.angle+s)*16,
+    dy: Math.sin(player.angle+s)*16
+  });
+}
+
+// Scheiben-Generierung
+setInterval(()=>{
+  targets.push({ x:100+Math.random()*(c.width-200), y:100+Math.random()*300, r:26, dx:Math.random()<0.5?2:-2 });
+},900);
+
+// Highscore
+async function loadHighscores(){
+  const q = query(collection(db,"highscores"), orderBy("score","desc"), limit(10));
+  const snap = await getDocs(q);
+  const list = document.getElementById("highscoreList"); list.innerHTML="";
+  snap.forEach(d=>{
+    const li = document.createElement("li");
+    li.textContent = d.data().name + " : " + d.data().score;
+    list.appendChild(li);
+  });
+}
+async function submitScore(){ await addDoc(collection(db,"highscores"),{name:playerName, score, t:Date.now()}); }
+
+// Update & Logic
+function update(now){
+  recoil *= 0.85;
+
+  if(shooting){
+    if(weapons[current].auto){
+      if(now - lastShot > weapons[current].rate){ shoot(now); lastShot=now; }
+    } else { shoot(now); shooting=false; }
+  }
+
+  // Bullets
+  bullets.forEach((b,i)=>{ b.x+=b.dx; b.y+=b.dy; if(b.x<0||b.y<0||b.x>c.width||b.y>c.height) bullets.splice(i,1); });
+  // Targets
+  targets.forEach(t=>{ t.x+=t.dx; if(t.x<80||t.x>c.width-80) t.dx*=-1; });
+  // Treffer
+  bullets.forEach((b,bi)=>targets.forEach((t,ti)=>{
+    if(Math.hypot(b.x-t.x,b.y-t.y)<t.r){ bullets.splice(bi,1); targets.splice(ti,1); score++; }
+  }));
+}
+
+// Zeichnen
+function drawPlayer(){
+  ctx.strokeStyle="white"; ctx.lineWidth=4;
+  ctx.beginPath(); ctx.arc(player.x(),player.y()-40,14,0,Math.PI*2); ctx.stroke(); // Kopf
+  ctx.beginPath(); ctx.moveTo(player.x(),player.y()-26); ctx.lineTo(player.x(),player.y()+30); ctx.stroke(); // Körper
+  ctx.beginPath(); ctx.moveTo(player.x(),player.y()-10);
+  ctx.lineTo(player.x()+Math.cos(player.angle)*40,player.y()+Math.sin(player.angle)*40); ctx.stroke(); // Waffe
+}
+
+function draw(){
+  ctx.clearRect(0,0,c.width,c.height);
+  drawPlayer();
+
+  ctx.fillStyle="yellow";
+  bullets.forEach(b=>{ ctx.beginPath(); ctx.arc(b.x,b.y,4,0,Math.PI*2); ctx.fill(); });
+
+  targets.forEach(t=>{
+    ctx.fillStyle="red"; ctx.beginPath(); ctx.arc(t.x,t.y,t.r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="lime";
+    ctx.font="bold 12px Arial";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText(playerName,t.x,t.y);
+  });
+
+  weapon.textContent = weapons[current].name;
+  ammoEl.textContent = ammo;
+  scoreEl.textContent = score;
+}
+
+// Game Loop
+function loop(now){ update(now); draw(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+
+loadHighscores();
+window.addEventListener("beforeunload",submitScore);
+</script>
+</body>
+</html>
